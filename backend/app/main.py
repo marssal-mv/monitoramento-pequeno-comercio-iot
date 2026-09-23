@@ -6,12 +6,13 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import models  # noqa: F401 (registra as tabelas no Base.metadata)
-from .database import Base, engine
+from sqlalchemy.orm import Session
+from .database import Base, engine, get_db
+from .models import SensorEvent
 from .schemas import EventCreate, StatisticsResponse, StatusResponse
 
 # ============================================
@@ -43,28 +44,18 @@ Base.metadata.create_all(bind=engine)
 OPERATION_START = int(os.getenv("HORA_INICIO", "6"))
 OPERATION_END = int(os.getenv("HORA_FIM", "22"))
 
-# ============================================
-# DADOS SIMULADOS (para início)
-# ============================================
 
-mock_events = [
-    {
-        "id": 1,
-        "sensor_id": "ESP32_001",
-        "timestamp": datetime.utcnow() - timedelta(hours=2),
-        "motion_detected": True,
-        "location": "porta",
-        "created_at": datetime.utcnow()
-    },
-    {
-        "id": 2,
-        "sensor_id": "ESP32_001",
-        "timestamp": datetime.utcnow() - timedelta(hours=1),
-        "motion_detected": True,
-        "location": "interior",
-        "created_at": datetime.utcnow()
+def serialize_event(e: SensorEvent) -> dict:
+    """Converte uma linha do banco (SensorEvent) num dict pronto pra resposta JSON"""
+    return {
+        "id": e.id,
+        "sensor_id": e.sensor_id,
+        "timestamp": e.timestamp,
+        "motion_detected": e.motion_detected,
+        "location": e.location,
+        "created_at": e.created_at
     }
-]
+
 
 # ============================================
 # ENDPOINTS
@@ -97,7 +88,7 @@ async def health_check():
 
 
 @app.post("/events", response_model=dict, tags=["Events"], status_code=201)
-async def create_event(event: EventCreate):
+async def create_event(event: EventCreate, db: Session = Depends(get_db)):
     """
     Receber evento do ESP32/Sensor
 
@@ -111,12 +102,16 @@ async def create_event(event: EventCreate):
     }
     ```
     """
-    # TODO: Implementar salvamento no banco de dados (via models.SensorEvent)
+    db_event = SensorEvent(**event.dict())
+    db.add(db_event)
+    db.commit()
+    db.refresh(db_event)
+
     return {
         "status": "received",
-        "event_id": len(mock_events) + 1,
-        "sensor_id": event.sensor_id,
-        "timestamp": event.timestamp.isoformat(),
+        "event_id": db_event.id,
+        "sensor_id": db_event.sensor_id,
+        "timestamp": db_event.timestamp.isoformat(),
         "message": "Evento recebido com sucesso"
     }
 
@@ -127,83 +122,91 @@ async def list_events(
     offset: int = Query(0, ge=0),
     location: Optional[str] = None,
     start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None,
+    db: Session = Depends(get_db)
 ):
     """Listar eventos com filtros opcionais"""
-    # TODO: Implementar query no banco com filtros
-
-    filtered_events = mock_events
+    query = db.query(SensorEvent)
 
     if location:
-        filtered_events = [e for e in filtered_events if e["location"] == location]
+        query = query.filter(SensorEvent.location == location)
+    if start_date:
+        query = query.filter(SensorEvent.timestamp >= start_date)
+    if end_date:
+        query = query.filter(SensorEvent.timestamp <= end_date)
 
-    total = len(filtered_events)
-    events = filtered_events[offset : offset + limit]
+    total = query.count()
+    events = query.order_by(SensorEvent.timestamp.desc()).offset(offset).limit(limit).all()
 
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
         "count": len(events),
-        "events": events
+        "events": [serialize_event(e) for e in events]
     }
 
 
 @app.get("/events/today", response_model=dict, tags=["Events"])
-async def events_today():
+async def events_today(db: Session = Depends(get_db)):
     """Listar eventos de hoje"""
-    # TODO: Implementar filtro por data no banco
-
     today = datetime.utcnow().date()
-    today_events = [e for e in mock_events if e["timestamp"].date() == today]
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
+
+    today_events = (
+        db.query(SensorEvent)
+        .filter(SensorEvent.timestamp >= today_start, SensorEvent.timestamp <= today_end)
+        .all()
+    )
 
     return {
         "date": today.isoformat(),
         "count": len(today_events),
-        "events": today_events
+        "events": [serialize_event(e) for e in today_events]
     }
 
 
 @app.get("/events/alerts", response_model=dict, tags=["Events"])
 async def get_alerts(
-    hours: int = Query(24, ge=1)
+    hours: int = Query(24, ge=1),
+    db: Session = Depends(get_db)
 ):
     """Listar alertas (movimento fora do horário)"""
-    # TODO: Implementar lógica de alertas no banco
-
     time_threshold = datetime.utcnow() - timedelta(hours=hours)
 
+    events = db.query(SensorEvent).filter(SensorEvent.timestamp > time_threshold).all()
+
     alerts = [
-        e for e in mock_events
-        if e["timestamp"] > time_threshold and
-        (e["timestamp"].hour < OPERATION_START or e["timestamp"].hour >= OPERATION_END)
+        e for e in events
+        if (e.timestamp.hour < OPERATION_START or e.timestamp.hour >= OPERATION_END)
     ]
 
     return {
         "count": len(alerts),
         "operation_hours": f"{OPERATION_START:02d}:00 - {OPERATION_END:02d}:00",
         "period_hours": hours,
-        "alerts": alerts
+        "alerts": [serialize_event(e) for e in alerts]
     }
 
 
 @app.get("/statistics", response_model=StatisticsResponse, tags=["Statistics"])
-async def get_statistics():
+async def get_statistics(db: Session = Depends(get_db)):
     """Obter estatísticas de movimentação"""
-    # TODO: Implementar cálculos no banco
+    events = db.query(SensorEvent).all()
 
     today = datetime.utcnow().date()
-    today_events = [e for e in mock_events if e["timestamp"].date() == today]
+    today_events = [e for e in events if e.timestamp.date() == today]
 
     alerts = [
-        e for e in mock_events
-        if (e["timestamp"].hour < OPERATION_START or e["timestamp"].hour >= OPERATION_END)
+        e for e in events
+        if (e.timestamp.hour < OPERATION_START or e.timestamp.hour >= OPERATION_END)
     ]
 
-    last_motion = max([e["timestamp"] for e in mock_events]) if mock_events else None
+    last_motion = max([e.timestamp for e in events]) if events else None
 
     return StatisticsResponse(
-        total_events=len(mock_events),
+        total_events=len(events),
         today_events=len(today_events),
         alerts_out_of_hours=len(alerts),
         last_motion=last_motion
@@ -211,16 +214,15 @@ async def get_statistics():
 
 
 @app.get("/status", response_model=StatusResponse, tags=["Status"])
-async def get_status():
+async def get_status(db: Session = Depends(get_db)):
     """Obter status atual do estabelecimento"""
-    # TODO: Implementar lógica no banco
-
     operation_hours = {
         "start": f"{OPERATION_START:02d}:00",
         "end": f"{OPERATION_END:02d}:00"
     }
 
-    last_motion = max([e["timestamp"] for e in mock_events]) if mock_events else None
+    events = db.query(SensorEvent).all()
+    last_motion = max([e.timestamp for e in events]) if events else None
 
     current_status = "normal"
     motion_in_last_30min = False
@@ -245,17 +247,19 @@ async def get_status():
 
 
 @app.get("/dashboard-data", response_model=dict, tags=["Dashboard"])
-async def get_dashboard_data():
+async def get_dashboard_data(db: Session = Depends(get_db)):
     """Endpoint especial para o dashboard: tudo que a interface precisa"""
+    events = db.query(SensorEvent).order_by(SensorEvent.timestamp.asc()).all()
+
     today = datetime.utcnow().date()
-    today_events = [e for e in mock_events if e["timestamp"].date() == today]
+    today_events = [e for e in events if e.timestamp.date() == today]
 
     alerts = [
-        e for e in mock_events
-        if (e["timestamp"].hour < OPERATION_START or e["timestamp"].hour >= OPERATION_END)
+        e for e in events
+        if (e.timestamp.hour < OPERATION_START or e.timestamp.hour >= OPERATION_END)
     ]
 
-    last_motion = max([e["timestamp"] for e in mock_events]) if mock_events else None
+    last_motion = max([e.timestamp for e in events]) if events else None
 
     return {
         "timestamp": datetime.utcnow().isoformat(),
@@ -264,12 +268,12 @@ async def get_dashboard_data():
             "api_health": "ok"
         },
         "statistics": {
-            "total_events": len(mock_events),
+            "total_events": len(events),
             "today_events": len(today_events),
             "alerts": len(alerts)
         },
-        "recent_events": mock_events[-5:],  # Últimos 5 eventos
-        "alerts": alerts,
+        "recent_events": [serialize_event(e) for e in events[-5:]],  # Últimos 5 eventos
+        "alerts": [serialize_event(e) for e in alerts],
         "last_motion": last_motion
     }
 
