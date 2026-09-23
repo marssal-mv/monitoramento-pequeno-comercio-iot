@@ -1,6 +1,6 @@
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 import random
 
 URL = "http://127.0.0.1:8000/events"
@@ -8,7 +8,7 @@ URL = "http://127.0.0.1:8000/events"
 while True:
     dados = {
         "sensor_id": "ESP32_001",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "motion_detected": random.choice([True, False]),
         "location": "porta"
     }
