@@ -5,7 +5,6 @@ from pydantic import BaseModel
 
 
 class EventCreate(BaseModel):
-    """Schema para criar um evento do sensor"""
     sensor_id: str
     timestamp: datetime
     motion_detected: bool
@@ -13,7 +12,6 @@ class EventCreate(BaseModel):
 
 
 class EventResponse(EventCreate):
-    """Schema de resposta com ID"""
     id: int
     created_at: datetime
 
@@ -22,7 +20,6 @@ class EventResponse(EventCreate):
 
 
 class StatisticsResponse(BaseModel):
-    """Estatísticas de eventos"""
     total_events: int
     today_events: int
     alerts_out_of_hours: int
@@ -30,7 +27,6 @@ class StatisticsResponse(BaseModel):
 
 
 class StatusResponse(BaseModel):
-    """Status do estabelecimento"""
     status: str  # "normal", "movimento_recente", "alerta"
     last_motion: Optional[datetime]
     operational_hours: dict

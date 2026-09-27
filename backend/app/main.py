@@ -1,7 +1,3 @@
-# ============================================
-# BACKEND - MONITORAMENTO PADARIA IoT
-# ============================================
-
 import os
 from datetime import datetime, timedelta
 from typing import Optional
@@ -15,10 +11,6 @@ from .database import Base, engine, get_db
 from .models import SensorEvent
 from .schemas import EventCreate, StatisticsResponse, StatusResponse
 
-# ============================================
-# INICIALIZAR FASTAPI
-# ============================================
-
 app = FastAPI(
     title="API Monitoramento Padaria Rosa de Saron",
     description="Sistema IoT de detecção de movimento para pequeno comércio",
@@ -27,7 +19,6 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# CORS - Permitir requisições do dashboard
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Em produção: ["https://seu-domain.com"]
@@ -36,7 +27,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Cria as tabelas no banco (SQLite local por padrão, ver database.py)
 Base.metadata.create_all(bind=engine)
 
 # Horário de funcionamento (configurável via .env) - fora desse intervalo,
@@ -57,13 +47,8 @@ def serialize_event(e: SensorEvent) -> dict:
     }
 
 
-# ============================================
-# ENDPOINTS
-# ============================================
-
 @app.get("/", tags=["Info"])
 async def root():
-    """Raiz da API - Informações"""
     return {
         "projeto": "Monitoramento Padaria Rosa de Saron",
         "versao": "0.1.0",
@@ -79,7 +64,6 @@ async def root():
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Verificar saúde da API"""
     return {
         "status": "ok",
         "timestamp": datetime.utcnow().isoformat(),
@@ -125,7 +109,6 @@ async def list_events(
     end_date: Optional[datetime] = None,
     db: Session = Depends(get_db)
 ):
-    """Listar eventos com filtros opcionais"""
     query = db.query(SensorEvent)
 
     if location:
@@ -149,7 +132,6 @@ async def list_events(
 
 @app.get("/events/today", response_model=dict, tags=["Events"])
 async def events_today(db: Session = Depends(get_db)):
-    """Listar eventos de hoje"""
     today = datetime.utcnow().date()
     today_start = datetime.combine(today, datetime.min.time())
     today_end = datetime.combine(today, datetime.max.time())
@@ -192,7 +174,6 @@ async def get_alerts(
 
 @app.get("/statistics", response_model=StatisticsResponse, tags=["Statistics"])
 async def get_statistics(db: Session = Depends(get_db)):
-    """Obter estatísticas de movimentação"""
     events = db.query(SensorEvent).all()
 
     today = datetime.utcnow().date()
@@ -215,7 +196,6 @@ async def get_statistics(db: Session = Depends(get_db)):
 
 @app.get("/status", response_model=StatusResponse, tags=["Status"])
 async def get_status(db: Session = Depends(get_db)):
-    """Obter status atual do estabelecimento"""
     operation_hours = {
         "start": f"{OPERATION_START:02d}:00",
         "end": f"{OPERATION_END:02d}:00"
@@ -248,7 +228,6 @@ async def get_status(db: Session = Depends(get_db)):
 
 @app.get("/dashboard-data", response_model=dict, tags=["Dashboard"])
 async def get_dashboard_data(db: Session = Depends(get_db)):
-    """Endpoint especial para o dashboard: tudo que a interface precisa"""
     events = db.query(SensorEvent).order_by(SensorEvent.timestamp.asc()).all()
 
     today = datetime.utcnow().date()
@@ -272,19 +251,14 @@ async def get_dashboard_data(db: Session = Depends(get_db)):
             "today_events": len(today_events),
             "alerts": len(alerts)
         },
-        "recent_events": [serialize_event(e) for e in events[-5:]],  # Últimos 5 eventos
+        "recent_events": [serialize_event(e) for e in events[-5:]],
         "alerts": [serialize_event(e) for e in alerts],
         "last_motion": last_motion
     }
 
 
-# ============================================
-# TRATAMENTO DE ERROS
-# ============================================
-
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
-    """Tratador customizado de exceções HTTP"""
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -295,20 +269,8 @@ async def http_exception_handler(request, exc):
     )
 
 
-# ============================================
-# MAIN - Rodar localmente
-# ============================================
-
 if __name__ == "__main__":
     import uvicorn
-
-    print("""
-    ============================================================
-      API Monitoramento Padaria Rosa de Saron
-      http://localhost:8000
-      Docs: http://localhost:8000/docs
-    ============================================================
-    """)
 
     uvicorn.run(
         "app.main:app",
