@@ -5,7 +5,7 @@
 #include "config.h"
 
 void setupTime() {
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  configTime(-3 * 3600, 0, "pool.ntp.org", "time.nist.gov"); // UTC-3 (Belém - PA)
   struct tm timeinfo;
   while (!getLocalTime(&timeinfo)) {
     Serial.println("Aguardando sincronizar hora...");
@@ -17,7 +17,7 @@ String getIsoTimestamp() {
   struct tm timeinfo;
   getLocalTime(&timeinfo);
   char buf[30];
-  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S+00:00", &timeinfo);
+  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S-03:00", &timeinfo);
   return String(buf);
 }
 
