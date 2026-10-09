@@ -2,6 +2,10 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -9,6 +13,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from .database import Base, engine, get_db
 from .models import SensorEvent
+from .notifications import send_telegram_alert
 from .schemas import EventCreate, StatisticsResponse, StatusResponse
 
 app = FastAPI(
@@ -90,6 +95,13 @@ async def create_event(event: EventCreate, db: Session = Depends(get_db)):
     db.add(db_event)
     db.commit()
     db.refresh(db_event)
+
+    if db_event.timestamp.hour < OPERATION_START or db_event.timestamp.hour >= OPERATION_END:
+        send_telegram_alert(
+            "🚨 Alerta! Movimento detectado fora do horário comercial.\n"
+            f"Local: {db_event.location}\n"
+            f"Horário: {db_event.timestamp.strftime('%d/%m/%Y %H:%M:%S')}"
+        )
 
     return {
         "status": "received",
