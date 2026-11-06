@@ -27,6 +27,7 @@ void sendEvent(bool motionDetected) {
   HTTPClient http;
   http.begin(API_URL);
   http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-API-Key", API_KEY);
 
   String payload = "{";
   payload += "\"sensor_id\":\"" + String(SENSOR_ID) + "\",";
