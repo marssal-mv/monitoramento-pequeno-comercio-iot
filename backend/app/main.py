@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -24,9 +24,18 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "https://monitoramento-pequeno-comercio-iot.vercel.app,http://localhost:5173"
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Em produção: ["https://seu-domain.com"]
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,6 +47,16 @@ Base.metadata.create_all(bind=engine)
 # movimento detectado é considerado alerta
 OPERATION_START = int(os.getenv("HORA_INICIO", "6"))
 OPERATION_END = int(os.getenv("HORA_FIM", "22"))
+
+API_KEY = os.getenv("API_KEY")
+
+
+def verify_api_key(x_api_key: Optional[str] = Header(None)):
+    """Protege o envio de eventos: só quem tiver a chave configurada no
+    sensor consegue gravar dados. Se API_KEY não estiver definida no .env,
+    a checagem é pulada (facilita rodar localmente/testes)."""
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Chave de API inválida ou ausente")
 
 
 def serialize_event(e: SensorEvent) -> dict:
@@ -76,7 +95,7 @@ async def health_check():
     }
 
 
-@app.post("/events", response_model=dict, tags=["Events"], status_code=201)
+@app.post("/events", response_model=dict, tags=["Events"], status_code=201, dependencies=[Depends(verify_api_key)])
 async def create_event(event: EventCreate, db: Session = Depends(get_db)):
     """
     Receber evento do ESP32/Sensor
