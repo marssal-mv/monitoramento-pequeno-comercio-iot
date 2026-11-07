@@ -50,6 +50,14 @@ OPERATION_END = int(os.getenv("HORA_FIM", "22"))
 
 API_KEY = os.getenv("API_KEY")
 
+TIMEZONE_OFFSET_HOURS = int(os.getenv("TIMEZONE_OFFSET_HOURS", "-3"))  # Belém - PA
+
+
+def local_now() -> datetime:
+    """Horário atual no fuso local (Belém), já que os timestamps salvos vêm
+    do ESP32 nesse mesmo fuso, não em UTC."""
+    return datetime.utcnow() + timedelta(hours=TIMEZONE_OFFSET_HOURS)
+
 
 def verify_api_key(x_api_key: Optional[str] = Header(None)):
     """Protege o envio de eventos: só quem tiver a chave configurada no
@@ -163,7 +171,7 @@ async def list_events(
 
 @app.get("/events/today", response_model=dict, tags=["Events"])
 async def events_today(db: Session = Depends(get_db)):
-    today = datetime.utcnow().date()
+    today = local_now().date()
     today_start = datetime.combine(today, datetime.min.time())
     today_end = datetime.combine(today, datetime.max.time())
 
@@ -186,7 +194,7 @@ async def get_alerts(
     db: Session = Depends(get_db)
 ):
     """Listar alertas (movimento fora do horário)"""
-    time_threshold = datetime.utcnow() - timedelta(hours=hours)
+    time_threshold = local_now() - timedelta(hours=hours)
 
     events = db.query(SensorEvent).filter(SensorEvent.timestamp > time_threshold).all()
 
@@ -207,7 +215,7 @@ async def get_alerts(
 async def get_statistics(db: Session = Depends(get_db)):
     events = db.query(SensorEvent).all()
 
-    today = datetime.utcnow().date()
+    today = local_now().date()
     today_events = [e for e in events if e.timestamp.date() == today]
 
     alerts = [
@@ -239,13 +247,13 @@ async def get_status(db: Session = Depends(get_db)):
     motion_in_last_30min = False
 
     if last_motion:
-        time_diff = datetime.utcnow() - last_motion
+        time_diff = local_now() - last_motion
 
         if time_diff < timedelta(minutes=30):
             motion_in_last_30min = True
             current_status = "movimento_recente"
 
-            current_hour = datetime.utcnow().hour
+            current_hour = local_now().hour
             if current_hour < OPERATION_START or current_hour >= OPERATION_END:
                 current_status = "alerta"
 
@@ -261,7 +269,7 @@ async def get_status(db: Session = Depends(get_db)):
 async def get_dashboard_data(db: Session = Depends(get_db)):
     events = db.query(SensorEvent).order_by(SensorEvent.timestamp.asc()).all()
 
-    today = datetime.utcnow().date()
+    today = local_now().date()
     today_events = [e for e in events if e.timestamp.date() == today]
 
     alerts = [
@@ -272,9 +280,9 @@ async def get_dashboard_data(db: Session = Depends(get_db)):
     last_motion = max([e.timestamp for e in events]) if events else None
 
     return {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": local_now().isoformat(),
         "status": {
-            "establishment": "Aberta" if OPERATION_START <= datetime.utcnow().hour < OPERATION_END else "Fechada",
+            "establishment": "Aberto" if OPERATION_START <= local_now().hour < OPERATION_END else "Fechado",
             "api_health": "ok"
         },
         "statistics": {
