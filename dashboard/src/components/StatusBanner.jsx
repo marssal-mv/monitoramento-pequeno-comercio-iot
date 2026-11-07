@@ -4,7 +4,7 @@ function formatDateTime(isoString) {
 }
 
 export default function StatusBanner({ status, lastMotion }) {
-  const isOpen = status?.establishment === "Aberta";
+  const isOpen = status?.establishment === "Aberto";
 
   return (
     <div className={`status-banner ${isOpen ? "status-open" : "status-closed"}`}>
