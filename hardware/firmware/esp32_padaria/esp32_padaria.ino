@@ -44,10 +44,10 @@ void sendEvent(bool motionDetected) {
   http.end();
 }
 
-void setup() {
-  Serial.begin(115200);
-  pinMode(PIR_PIN, INPUT);
+unsigned long lastReconnectAttempt = 0;
+const unsigned long RECONNECT_INTERVAL = 10000; // tenta reconectar a cada 10s se cair
 
+void connectWiFi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Conectando ao WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -55,11 +55,32 @@ void setup() {
     Serial.print(".");
   }
   Serial.println("\nConectado! IP: " + WiFi.localIP().toString());
+}
 
+void setup() {
+  Serial.begin(115200);
+  pinMode(PIR_PIN, INPUT);
+
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
+
+  connectWiFi();
   setupTime();
 }
 
 void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    unsigned long now = millis();
+    if (now - lastReconnectAttempt > RECONNECT_INTERVAL) {
+      lastReconnectAttempt = now;
+      Serial.println("WiFi caiu, tentando reconectar...");
+      WiFi.disconnect();
+      WiFi.reconnect();
+    }
+    delay(200);
+    return;
+  }
+
   int motionState = digitalRead(PIR_PIN);
 
   if (motionState == HIGH) {
